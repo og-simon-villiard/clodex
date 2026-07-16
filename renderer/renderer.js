@@ -2193,9 +2193,14 @@ async function pnFetchJira() {
     const bn = await window.api.jiraBranchName(r.issue.key, r.issue.summary);
     if (bn && bn.ok) pnBranch.value = bn.branch;
   }
-  // Seed the session name if empty.
+  // Seed the session name if empty: <key>-<summary-slug>, e.g.
+  // abc-152-auto-classify-certifications. Session names allow [A-Za-z0-9._-] and
+  // cap at 64 chars, so slugify the summary and clamp.
   if (document.getElementById('pn-jira-seed').checked && !pnName.value.trim()) {
-    pnName.value = r.issue.key.toLowerCase();
+    const slug = (r.issue.summary || '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    const base = `${r.issue.key.toLowerCase()}${slug ? `-${slug}` : ''}`;
+    pnName.value = base.slice(0, 64).replace(/-+$/, '');
   }
 }
 

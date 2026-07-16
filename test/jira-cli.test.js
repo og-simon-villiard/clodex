@@ -7,19 +7,19 @@ const assert = require('node:assert');
 const jira = require('../jira-cli');
 
 test('validKey: accepts ABC-123, rejects junk', () => {
-  assert.ok(jira.validKey('AVK-152'));
+  assert.ok(jira.validKey('ABC-152'));
   assert.ok(jira.validKey('ABC-1'));
   assert.ok(jira.validKey('PROJ_X-9'));
   assert.ok(!jira.validKey('nope'));
   assert.ok(!jira.validKey('123-456'));   // must start with a letter
-  assert.ok(!jira.validKey('AVK'));        // needs a number
+  assert.ok(!jira.validKey('ABC'));        // needs a number
   assert.ok(!jira.validKey(''));
   assert.ok(!jira.validKey(null));
 });
 
 test('normalizeIssue: standard REST shape → flat fields', () => {
   const issue = jira.normalizeIssue({
-    key: 'AVK-152',
+    key: 'ABC-152',
     fields: {
       summary: 'Do the thing',
       status: { name: 'In Progress' },
@@ -28,7 +28,7 @@ test('normalizeIssue: standard REST shape → flat fields', () => {
     },
   });
   assert.deepStrictEqual(issue, {
-    key: 'AVK-152',
+    key: 'ABC-152',
     summary: 'Do the thing',
     status: 'In Progress',
     type: 'Story',

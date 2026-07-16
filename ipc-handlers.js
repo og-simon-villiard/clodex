@@ -222,7 +222,7 @@ function registerIpcHandlers(deps) {
   handle('jira:transition', async (_e, key, status) => jiraCli.transition(key, status));
   handle('jira:comment', async (_e, key, body) => jiraCli.comment(key, body));
   // Suggest a git branch name from a ticket: <KEY-lower>-<slug-of-summary>,
-  // e.g. AVK-152-auto-classify-certifications. Pure string work; the modal shows
+  // e.g. abc-152-auto-classify-certifications. Pure string work; the modal shows
   // it as the default branch (editable). Capped so paths stay sane.
   handle('jira:branchName', (_e, key, summary) => {
     const k = String(key || '').trim().toLowerCase();
