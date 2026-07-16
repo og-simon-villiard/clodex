@@ -1655,7 +1655,7 @@ body.sidebar-resizing .terminal-wrapper { pointer-events: none; }
 
 /* Dialog */
 
-#dialog-overlay, #prefs-overlay, #args-overlay, #peers-overlay, #peer-session-overlay, #sandbox-overlay, #discovery-overlay, #project-new-overlay {
+#dialog-overlay, #prefs-overlay, #args-overlay, #peers-overlay, #peer-session-overlay, #sandbox-overlay, #discovery-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
@@ -1665,41 +1665,17 @@ body.sidebar-resizing .terminal-wrapper { pointer-events: none; }
   z-index: 100;
 }
 
-#dialog-overlay.hidden, #prefs-overlay.hidden, #args-overlay.hidden, #peers-overlay.hidden, #peer-session-overlay.hidden, #sandbox-overlay.hidden, #discovery-overlay.hidden, #project-new-overlay.hidden {
+#dialog-overlay.hidden, #prefs-overlay.hidden, #args-overlay.hidden, #peers-overlay.hidden, #peer-session-overlay.hidden, #sandbox-overlay.hidden, #discovery-overlay.hidden {
   display: none;
 }
 
-/* New-in-project modal (group-header "+"). Mirrors the New Session dialog frame. */
-#project-new-dialog {
-  background: var(--sidebar-bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 20px;
-  width: 460px;
-  max-width: calc(100vw - 40px);
-  max-height: calc(100vh - 60px);
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-#project-new-dialog h3 { margin: 0 0 4px; }
-#project-new-dialog label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-dim); }
-#project-new-dialog label > input[type="text"], #project-new-dialog label > select {
-  background: var(--input-bg, var(--active-bg)); color: var(--text);
-  border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px;
-}
-.pn-radio-row { display: flex; gap: 14px; }
-.pn-radio { flex-direction: row !important; align-items: center; gap: 5px !important; color: var(--text) !important; font-weight: normal; }
-.pn-check { flex-direction: row !important; align-items: center; gap: 6px !important; color: var(--text) !important; font-weight: normal; margin-top: 4px; }
-#pn-jira-section { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
-#pn-jira-section summary { cursor: pointer; font-size: 12px; color: var(--text-dim); }
-#pn-jira-section[open] summary { color: var(--text); margin-bottom: 6px; }
+/* Ticket section in the New Session dialog ("From ticket"). */
+.pn-check { display: flex; flex-direction: row; align-items: center; gap: 6px; color: var(--text); font-weight: normal; margin-top: 4px; }
 .pn-jira-fetch { display: flex; gap: 6px; }
 .pn-jira-fetch input { flex: 1; background: var(--input-bg, var(--active-bg)); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px; }
-#pn-jira-summary { margin: 6px 0; }
-#pn-jira-summary.loaded { color: var(--text); }
-#pn-jira-unavailable.hidden { display: none; }
+#ticket-summary { margin: 6px 0; }
+#ticket-summary.loaded { color: var(--text); }
+#ticket-unavailable.hidden { display: none; }
 
 /* Discover Sessions can open ON TOP of the New Session dialog (via the Resume
    field's "Find…" button), so it sits one layer above the shared z100 modals. */

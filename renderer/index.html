@@ -549,6 +549,21 @@
           </label>
         </div>
       </label>
+      <details id="ticket-section" class="dialog-section" style="display:none;">
+        <summary>From ticket</summary>
+        <div id="ticket-unavailable" class="hint-text hidden">No ticket CLI found (install <code>acli</code> or <code>jira</code>) — this section is disabled.</div>
+        <div id="ticket-body">
+          <div class="pn-jira-fetch">
+            <input type="text" id="input-ticket-key" placeholder="ticket key — e.g. ABC-152" spellcheck="false" autocomplete="off">
+            <button id="btn-ticket-fetch" class="secondary" type="button">Fetch</button>
+          </div>
+          <div id="ticket-summary" class="hint-text"></div>
+          <label class="pn-check"><input type="checkbox" id="ticket-seed" checked> Seed session name + inject ticket as context</label>
+          <label class="pn-check"><input type="checkbox" id="ticket-branch-chk" checked> Use ticket-derived branch name (needs a worktree/branch)</label>
+          <label class="pn-check"><input type="checkbox" id="ticket-transition" checked> Transition to In Progress</label>
+          <label class="pn-check"><input type="checkbox" id="ticket-comment" checked> Post a comment (started work in Clodex)</label>
+        </div>
+      </details>
       <label id="system-prompt-row">System prompt
         <select id="input-system-prompt">
           <option value="">(CLI default)</option>
@@ -686,63 +701,6 @@
         <button id="discovery-refresh" class="secondary" type="button">Rescan</button>
         <div style="flex: 1;"></div>
         <button id="discovery-close" class="secondary">Close</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- New session in a project (group-header "+"). Scoped to one git repo:
-       pick isolation (worktree/branch), optionally seed from a Jira ticket. -->
-  <div id="project-new-overlay" class="hidden">
-    <div id="project-new-dialog">
-      <h3>New session in <span id="pn-repo-name"></span></h3>
-      <label>Name
-        <input type="text" id="pn-name" placeholder="e.g. feature-x" spellcheck="false" autocomplete="off">
-      </label>
-      <label>Type
-        <select id="pn-type">
-          <option value="claude">claude</option>
-          <option value="codex">codex</option>
-          <option value="bash">bash</option>
-        </select>
-      </label>
-      <label>Isolation
-        <div class="pn-radio-row">
-          <label class="pn-radio"><input type="radio" name="pn-iso" value="worktree" checked> New git worktree</label>
-          <label class="pn-radio"><input type="radio" name="pn-iso" value="branch"> New branch (in place)</label>
-        </div>
-        <span class="hint-text" id="pn-iso-hint">Worktree: an isolated checkout in its own directory. Branch: checks out a new branch in the repo's working directory.</span>
-      </label>
-      <label>Branch
-        <input type="text" id="pn-branch" placeholder="new branch name" spellcheck="false" autocomplete="off">
-      </label>
-      <label>Create from
-        <input type="text" id="pn-base" placeholder="(default branch)" spellcheck="false" autocomplete="off" list="pn-base-list">
-        <datalist id="pn-base-list"></datalist>
-      </label>
-      <label id="pn-dir-row">Worktree directory
-        <input type="text" id="pn-dir" placeholder="(auto)" spellcheck="false" autocomplete="off">
-        <span class="hint-text">Defaults to <code>&lt;repo&gt;.worktrees/&lt;branch&gt;</code>. The session opens in this directory.</span>
-      </label>
-      <details id="pn-jira-section">
-        <summary>From Jira ticket</summary>
-        <div id="pn-jira-unavailable" class="hint-text hidden">No Jira CLI found (install <code>acli</code> or <code>jira</code>) — this section is disabled.</div>
-        <div id="pn-jira-body">
-          <div class="pn-jira-fetch">
-            <input type="text" id="pn-jira-key" placeholder="ticket key — e.g. ABC-152" spellcheck="false" autocomplete="off">
-            <button id="pn-jira-fetch" class="secondary" type="button">Fetch</button>
-          </div>
-          <div id="pn-jira-summary" class="hint-text"></div>
-          <label class="pn-check"><input type="checkbox" id="pn-jira-seed" checked> Seed session name + inject ticket as context</label>
-          <label class="pn-check"><input type="checkbox" id="pn-jira-branch" checked> Use ticket-derived branch name</label>
-          <label class="pn-check"><input type="checkbox" id="pn-jira-transition" checked> Transition to <span id="pn-jira-status-label">In Progress</span></label>
-          <label class="pn-check"><input type="checkbox" id="pn-jira-comment" checked> Post a comment (started work in Clodex)</label>
-        </div>
-      </details>
-      <div id="pn-error" class="peer-bar-error" style="display:none;"></div>
-      <div class="dialog-actions">
-        <div style="flex: 1;"></div>
-        <button id="pn-cancel" class="secondary" type="button">Cancel</button>
-        <button id="pn-create" type="button">Create</button>
       </div>
     </div>
   </div>
