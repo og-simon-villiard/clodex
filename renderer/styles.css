@@ -274,6 +274,21 @@ body.sidebar-resizing .terminal-wrapper { pointer-events: none; }
 .session-group-header.collapsed .session-group-caret { transform: rotate(-90deg); }
 .session-group-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .session-group-count { opacity: 0.7; font-weight: 600; }
+/* "+" on a project group header — reveals on header hover; opens the
+   new-in-project modal for that repo. */
+.session-group-add {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0;
+}
+.session-group-header:hover .session-group-add { opacity: 0.8; }
+.session-group-add:hover { color: var(--accent); opacity: 1; }
 .session-empty-note { padding: 16px 8px; text-align: center; font-size: 12px; color: var(--text-dim); }
 
 /* PR-status chip on a row (open=green, merged=purple, closed=red). */
@@ -1628,7 +1643,7 @@ body.sidebar-resizing .terminal-wrapper { pointer-events: none; }
 
 /* Dialog */
 
-#dialog-overlay, #prefs-overlay, #args-overlay, #peers-overlay, #peer-session-overlay, #sandbox-overlay, #discovery-overlay {
+#dialog-overlay, #prefs-overlay, #args-overlay, #peers-overlay, #peer-session-overlay, #sandbox-overlay, #discovery-overlay, #project-new-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
@@ -1638,9 +1653,41 @@ body.sidebar-resizing .terminal-wrapper { pointer-events: none; }
   z-index: 100;
 }
 
-#dialog-overlay.hidden, #prefs-overlay.hidden, #args-overlay.hidden, #peers-overlay.hidden, #peer-session-overlay.hidden, #sandbox-overlay.hidden, #discovery-overlay.hidden {
+#dialog-overlay.hidden, #prefs-overlay.hidden, #args-overlay.hidden, #peers-overlay.hidden, #peer-session-overlay.hidden, #sandbox-overlay.hidden, #discovery-overlay.hidden, #project-new-overlay.hidden {
   display: none;
 }
+
+/* New-in-project modal (group-header "+"). Mirrors the New Session dialog frame. */
+#project-new-dialog {
+  background: var(--sidebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  width: 460px;
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 60px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+#project-new-dialog h3 { margin: 0 0 4px; }
+#project-new-dialog label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-dim); }
+#project-new-dialog label > input[type="text"], #project-new-dialog label > select {
+  background: var(--input-bg, var(--active-bg)); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px;
+}
+.pn-radio-row { display: flex; gap: 14px; }
+.pn-radio { flex-direction: row !important; align-items: center; gap: 5px !important; color: var(--text) !important; font-weight: normal; }
+.pn-check { flex-direction: row !important; align-items: center; gap: 6px !important; color: var(--text) !important; font-weight: normal; margin-top: 4px; }
+#pn-jira-section { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+#pn-jira-section summary { cursor: pointer; font-size: 12px; color: var(--text-dim); }
+#pn-jira-section[open] summary { color: var(--text); margin-bottom: 6px; }
+.pn-jira-fetch { display: flex; gap: 6px; }
+.pn-jira-fetch input { flex: 1; background: var(--input-bg, var(--active-bg)); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; font-size: 13px; }
+#pn-jira-summary { margin: 6px 0; }
+#pn-jira-summary.loaded { color: var(--text); }
+#pn-jira-unavailable.hidden { display: none; }
 
 /* Discover Sessions can open ON TOP of the New Session dialog (via the Resume
    field's "Find…" button), so it sits one layer above the shared z100 modals. */

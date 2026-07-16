@@ -32,6 +32,7 @@ const sessionDiscovery = require('./session-discovery');
 const gitWorktree = require('./git-worktree');
 const gitScm = require('./git-scm');
 const fsExplorer = require('./fs-explorer');
+const jiraCli = require('./jira-cli');
 
 function registerIpcHandlers(deps) {
   const {
@@ -211,6 +212,25 @@ function registerIpcHandlers(deps) {
   });
   handle('worktree:remove', async (_e, worktreePath) =>
     gitWorktree.removeWorktree(worktreePath));
+
+  // --- Jira: "new session from ticket" (jira-cli.js adapter, acli|jira) ----
+  // detect → which CLI (or null, so the modal can grey the Jira section).
+  handle('jira:detect', () => ({ ok: true, cli: jiraCli.detect() }));
+  // view → fetch + normalize a ticket ({ key, summary, status, type, description }).
+  handle('jira:view', async (_e, key) => jiraCli.view(key));
+  // transition/comment → optional post-create actions, each gated in the modal.
+  handle('jira:transition', async (_e, key, status) => jiraCli.transition(key, status));
+  handle('jira:comment', async (_e, key, body) => jiraCli.comment(key, body));
+  // Suggest a git branch name from a ticket: <KEY-lower>-<slug-of-summary>,
+  // e.g. AVK-152-auto-classify-certifications. Pure string work; the modal shows
+  // it as the default branch (editable). Capped so paths stay sane.
+  handle('jira:branchName', (_e, key, summary) => {
+    const k = String(key || '').trim().toLowerCase();
+    const slug = String(summary || '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48).replace(/-+$/, '');
+    const branch = slug ? `${k}-${slug}` : k;
+    return { ok: true, branch };
+  });
 
   // File explorer + editor (fs-explorer.js). Confined to the session cwd.
   handle('fs:list', async (_e, name, rel) => {

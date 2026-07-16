@@ -46,6 +46,12 @@ const API_CONTRACT = [
   { name: 'fsList', kind: 'invoke', channel: 'fs:list' },
   { name: 'fsRead', kind: 'invoke', channel: 'fs:read' },
   { name: 'fsWrite', kind: 'invoke', channel: 'fs:write' },
+  // Jira: new session from a ticket (acli / jira-cli adapter).
+  { name: 'jiraDetect', kind: 'invoke', channel: 'jira:detect' },
+  { name: 'jiraView', kind: 'invoke', channel: 'jira:view' },
+  { name: 'jiraTransition', kind: 'invoke', channel: 'jira:transition' },
+  { name: 'jiraComment', kind: 'invoke', channel: 'jira:comment' },
+  { name: 'jiraBranchName', kind: 'invoke', channel: 'jira:branchName' },
   { name: 'listSessions', kind: 'invoke', channel: 'session:list' },
   { name: 'killSession', kind: 'invoke', channel: 'session:kill' },
   { name: 'archiveSession', kind: 'invoke', channel: 'session:archive' },

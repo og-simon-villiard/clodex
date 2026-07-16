@@ -887,7 +887,21 @@ function refreshSidebarView() {
     return String(a).localeCompare(String(b));
   });
   for (const key of keys) {
-    const header = makeGroupHeader(key, groups.get(key).length);
+    const rows = groups.get(key);
+    // In project mode, hand the header a representative repo path + cwd from the
+    // group's rows so its "+" can create a new session in the SAME repo. repo is
+    // the git toplevel (from meta); cwd is any member's dir (a fallback that's
+    // still inside the repo, which the worktree/repo IPC resolve from).
+    let repoPath = null, repoCwd = null;
+    if (sidebarView.group === 'project') {
+      for (const el of rows) {
+        const m = sidebarMeta.get(el.dataset.name) || {};
+        if (!repoPath && m.repo) repoPath = m.repo;
+        if (!repoCwd && el.dataset.cwd) repoCwd = el.dataset.cwd;
+        if (repoPath && repoCwd) break;
+      }
+    }
+    const header = makeGroupHeader(key, rows.length, { repoPath, repoCwd });
     if (firstPeer) sessionList.insertBefore(header, firstPeer); else sessionList.appendChild(header);
     const collapsed = collapsedGroups.has(key);
     for (const el of groups.get(key).sort(compareRows)) {
@@ -946,7 +960,7 @@ function scheduleSidebarRelayout() {
   relayoutTimer = setTimeout(() => { relayoutTimer = null; refreshSidebarView(); }, 250);
 }
 
-function makeGroupHeader(key, count) {
+function makeGroupHeader(key, count, opts = {}) {
   const h = document.createElement('div');
   h.className = 'session-group-header';
   if (collapsedGroups.has(key)) h.classList.add('collapsed');
@@ -961,6 +975,22 @@ function makeGroupHeader(key, count) {
   cnt.className = 'session-group-count';
   cnt.textContent = String(count);
   h.append(caret, title, cnt);
+  // Project groups get a "+" that opens the new-in-project modal scoped to this
+  // repo (new branch / worktree / from Jira). Only when we resolved a repo path
+  // or a member cwd — a group with neither can't anchor a create.
+  const repoCwd = opts.repoCwd || opts.repoPath || null;
+  if (opts && (opts.repoPath || opts.repoCwd)) {
+    const add = document.createElement('button');
+    add.className = 'session-group-add';
+    add.type = 'button';
+    add.textContent = '+';
+    add.setAttribute('data-tip', `New session in ${key}`);
+    add.addEventListener('click', (e) => {
+      e.stopPropagation(); // don't toggle collapse
+      openNewInProject({ repoName: key, repoPath: opts.repoPath || null, repoCwd });
+    });
+    h.append(add);
+  }
   h.addEventListener('click', () => {
     if (collapsedGroups.has(key)) collapsedGroups.delete(key); else collapsedGroups.add(key);
     refreshSidebarView();
@@ -2065,6 +2095,193 @@ function submitDialog() {
 // Arrow-wrapped: a bare `openDialog` reference would pass the click MouseEvent as
 // the prefill arg (openDialog(prefill) now takes one), mis-seeding the dialog.
 document.getElementById('btn-new').addEventListener('click', () => openDialog());
+
+// ---------------------------------------------------------------------------
+// New-in-project modal (project group-header "+")
+// ---------------------------------------------------------------------------
+// Create a new session in a SPECIFIC repo (the group's), choosing worktree vs
+// in-place branch, optionally seeded from a Jira ticket (acli/jira adapter).
+const pnOverlay = document.getElementById('project-new-overlay');
+const pnRepoName = document.getElementById('pn-repo-name');
+const pnName = document.getElementById('pn-name');
+const pnType = document.getElementById('pn-type');
+const pnBranch = document.getElementById('pn-branch');
+const pnBase = document.getElementById('pn-base');
+const pnBaseList = document.getElementById('pn-base-list');
+const pnDir = document.getElementById('pn-dir');
+const pnDirRow = document.getElementById('pn-dir-row');
+const pnError = document.getElementById('pn-error');
+const pnJiraKey = document.getElementById('pn-jira-key');
+const pnJiraSummary = document.getElementById('pn-jira-summary');
+const pnJiraStatusLabel = document.getElementById('pn-jira-status-label');
+// Context for the currently-open modal.
+let pnCtx = null;      // { repoName, repoPath, repoCwd, cwd }
+let pnJiraIssue = null; // last fetched { key, summary, status, type, description }
+
+const JIRA_IN_PROGRESS = 'In Progress';
+
+function pnIsolation() {
+  const r = document.querySelector('input[name="pn-iso"]:checked');
+  return r ? r.value : 'worktree';
+}
+function pnSyncIsolation() {
+  // Worktree-only fields (dir) hide for the in-place branch mode.
+  pnDirRow.style.display = pnIsolation() === 'worktree' ? '' : 'none';
+}
+for (const r of document.querySelectorAll('input[name="pn-iso"]')) {
+  r.addEventListener('change', pnSyncIsolation);
+}
+
+function closeProjectNew() { pnOverlay.classList.add('hidden'); pnCtx = null; pnJiraIssue = null; }
+
+async function openNewInProject(ctx) {
+  // ctx.repoCwd is a member session's dir (always inside the repo); repoPath is
+  // the git toplevel. The worktree/repo IPC resolve from either, so prefer the
+  // toplevel and fall back to the member cwd.
+  pnCtx = { ...ctx, cwd: ctx.repoPath || ctx.repoCwd };
+  pnJiraIssue = null;
+  pnRepoName.textContent = ctx.repoName || '(repo)';
+  pnName.value = '';
+  pnType.value = 'claude';
+  pnBranch.value = '';
+  pnBase.value = '';
+  pnDir.value = '';
+  pnDir.placeholder = '(auto)';
+  pnError.style.display = 'none';
+  pnJiraKey.value = '';
+  pnJiraSummary.textContent = '';
+  pnJiraSummary.classList.remove('loaded');
+  document.querySelector('input[name="pn-iso"][value="worktree"]').checked = true;
+  pnSyncIsolation();
+  const sec = document.getElementById('pn-jira-section');
+  if (sec) sec.open = false;
+  // Populate the base-branch datalist from the repo, and gate the Jira section
+  // on CLI availability.
+  window.api.worktreeInfo(pnCtx.cwd).then((info) => {
+    pnBaseList.innerHTML = '';
+    if (info && info.ok && Array.isArray(info.branches)) {
+      for (const b of info.branches) { const o = document.createElement('option'); o.value = b; pnBaseList.appendChild(o); }
+    }
+    if (info && info.defaultBranch) pnBase.placeholder = `${info.defaultBranch} (default)`;
+  }).catch(() => {});
+  window.api.jiraDetect().then((r) => {
+    const has = !!(r && r.ok && r.cli);
+    document.getElementById('pn-jira-unavailable').classList.toggle('hidden', has);
+    document.getElementById('pn-jira-body').style.display = has ? '' : 'none';
+  }).catch(() => {});
+  pnOverlay.classList.remove('hidden');
+  setTimeout(() => pnName.focus(), 50);
+}
+
+// Fetch the ticket → show summary/status, and (if enabled) seed name + branch.
+async function pnFetchJira() {
+  const key = pnJiraKey.value.trim();
+  if (!key) { pnJiraKey.focus(); return; }
+  pnJiraSummary.textContent = 'Fetching…';
+  pnJiraSummary.classList.remove('loaded');
+  const r = await window.api.jiraView(key);
+  if (!r || !r.ok) {
+    pnJiraSummary.textContent = `Couldn't fetch ${key}: ${(r && r.error) || 'unknown error'}`;
+    pnJiraIssue = null;
+    return;
+  }
+  pnJiraIssue = r.issue;
+  pnJiraSummary.textContent = `${r.issue.key} · ${r.issue.type || ''} · ${r.issue.status || ''} — ${r.issue.summary}`;
+  pnJiraSummary.classList.add('loaded');
+  // Seed the branch name (if the box is checked and the field is empty/derivable).
+  if (document.getElementById('pn-jira-branch').checked) {
+    const bn = await window.api.jiraBranchName(r.issue.key, r.issue.summary);
+    if (bn && bn.ok) pnBranch.value = bn.branch;
+  }
+  // Seed the session name if empty.
+  if (document.getElementById('pn-jira-seed').checked && !pnName.value.trim()) {
+    pnName.value = r.issue.key.toLowerCase();
+  }
+}
+
+async function pnCreate() {
+  if (!pnCtx) return;
+  pnError.style.display = 'none';
+  const showErr = (m) => { pnError.textContent = m; pnError.style.display = ''; };
+  const type = pnType.value;
+  const iso = pnIsolation();
+  const branch = pnBranch.value.trim();
+  const jiraOn = document.getElementById('pn-jira-section').open && pnJiraIssue;
+
+  // Branch is required for both isolation modes (worktree branch, or the new
+  // in-place branch). Derive from Jira if empty and available.
+  if (!branch) { showErr('Enter a branch name (or fetch a Jira ticket to derive one).'); return; }
+
+  let name = pnName.value.trim();
+  if (!name) name = branch.replace(/[^a-zA-Z0-9._-]+/g, '-').slice(0, 48) || `session-${Date.now().toString(36)}`;
+  if (sessions.has(name)) { showErr(`A session named "${name}" already exists.`); return; }
+
+  const base = pnBase.value.trim() || null;
+  let spawnCwd = pnCtx.cwd;
+  let worktree = null;
+
+  if (iso === 'worktree') {
+    const targetPath = pnDir.value.trim() || null;
+    const wt = await window.api.createWorktree(pnCtx.cwd, branch, { base, targetPath });
+    if (!wt || !wt.ok) { showErr(`Worktree creation failed: ${(wt && wt.error) || 'unknown error'}`); return; }
+    spawnCwd = wt.path;
+    worktree = { path: wt.path, branch: wt.branch, base: wt.base || null, repo: wt.repo };
+  }
+
+  // Optional Jira context seeding → inject the ticket as an append prompt-like
+  // first message. We pass it as a system prompt body param is null (F2); instead
+  // we send the ticket as the session's opening context via a temp inline note in
+  // the session name/label only, and rely on the transition/comment side-effects.
+  // (Keeping it simple: name carries the key; the agent can read the ticket via CLI.)
+
+  // Spawn: a plain create in the chosen cwd. extraArgs [], defaults elsewhere.
+  const result = await window.api.createSession(
+    name, type, spawnCwd, [], null, null, false,
+    null, [], [], undefined, [], [], 0, null, [], [], null);
+  if (!result || !result.ok) { showErr(`Create session failed: ${(result && result.error) || 'unknown error'}`); return; }
+  if (worktree) window.api.markSessionWorktree(name, worktree);
+
+  // In-place branch mode: check out the new branch in the repo cwd now that the
+  // session exists (scm:checkout resolves the session's cwd server-side).
+  if (iso === 'branch') {
+    const co = await window.api.scmCheckout(name, branch, { create: true });
+    if (!co || !co.ok) showToast(`Branch checkout failed: ${(co && co.error) || 'unknown'}`, { kind: 'warn', duration: 10000, name });
+  }
+
+  // Optional Jira side-effects (each gated by its checkbox).
+  if (jiraOn) {
+    const key = pnJiraIssue.key;
+    if (document.getElementById('pn-jira-transition').checked) {
+      window.api.jiraTransition(key, JIRA_IN_PROGRESS).then((r) => {
+        if (r && !r.ok) showToast(`Jira transition failed: ${r.error}`, { kind: 'warn', duration: 10000, name });
+      });
+    }
+    if (document.getElementById('pn-jira-comment').checked) {
+      const body = `Started work in Clodex — session "${name}" on branch \`${branch}\`${worktree ? ' (git worktree)' : ''}.`;
+      window.api.jiraComment(key, body).then((r) => {
+        if (r && !r.ok) showToast(`Jira comment failed: ${r.error}`, { kind: 'warn', duration: 10000, name });
+      });
+    }
+    // Seed context: if enabled, inject the ticket summary/description into the
+    // session's input as an opening message once it's live.
+    if (document.getElementById('pn-jira-seed').checked && pnJiraIssue.summary) {
+      const ctx = `Working on Jira ${key}: ${pnJiraIssue.summary}\n\n${pnJiraIssue.description || ''}`.trim();
+      setTimeout(() => { try { window.api.writeToSession(name, ctx); } catch {} }, 1500);
+    }
+  }
+
+  window.api.noteCwd(pnCtx.cwd);
+  closeProjectNew();
+  createTerminal(name);
+  addSessionToSidebar(name, type, spawnCwd, null, (result.session && result.session.backend) || null);
+  switchSession(name);
+  refreshSidebarMeta();
+}
+
+if (document.getElementById('pn-jira-fetch')) document.getElementById('pn-jira-fetch').addEventListener('click', pnFetchJira);
+if (document.getElementById('pn-cancel')) document.getElementById('pn-cancel').addEventListener('click', closeProjectNew);
+if (document.getElementById('pn-create')) document.getElementById('pn-create').addEventListener('click', pnCreate);
+if (pnOverlay) pnOverlay.addEventListener('mousedown', (e) => { if (e.target === pnOverlay) closeProjectNew(); });
 // Sidebar-header toolbar siblings of + (new session): new sandbox opens the
 // sandbox panel (P2's box list owns creation — no inline create flow), add peer
 // opens the peers-SETUP dialog. Both are just openers; Cmd+T still maps to +.
