@@ -70,6 +70,7 @@
         <span class="inbox-count zero" id="inbox-count">0</span>
       </button>
     </div>
+    <div id="sidebar-resizer" data-tip="Drag to resize (double-click to reset)"></div>
   </div>
 
   <!-- Prompts library drawer -->
@@ -309,6 +310,7 @@
               <input type="text" id="wb-worktree-branch" class="sidebar-search" placeholder="new branch name" spellcheck="false" autocomplete="off">
               <input type="text" id="wb-worktree-base" class="sidebar-search" placeholder="base branch (optional)" spellcheck="false" autocomplete="off" list="wb-worktree-base-list">
               <datalist id="wb-worktree-base-list"></datalist>
+              <input type="text" id="wb-worktree-dir" class="sidebar-search" placeholder="directory (auto: <repo>.worktrees/<branch>)" spellcheck="false" autocomplete="off">
               <button id="wb-worktree-add" type="button">Create Worktree</button>
             </div>
             <div id="wb-worktrees-empty" class="hint hidden">No local session selected, or its directory isn't a git repository.</div>
@@ -539,6 +541,10 @@
             <input type="text" id="input-worktree-base" placeholder="(default branch)" spellcheck="false" list="worktree-base-list" autocomplete="off">
             <datalist id="worktree-base-list"></datalist>
             <span class="hint-text" style="margin: 0;">The branch/ref the new worktree branches off. Defaults to the repo's default branch.</span>
+          </label>
+          <label style="margin-top:4px; font-weight: normal;">Worktree directory
+            <input type="text" id="input-worktree-dir" placeholder="(auto)" spellcheck="false" autocomplete="off">
+            <span class="hint-text" style="margin: 0;">Where the worktree is created. Defaults to <code>&lt;repo&gt;.worktrees/&lt;branch&gt;</code>. The session opens <em>in this directory</em>, not the source repo.</span>
           </label>
         </div>
       </label>

@@ -70,9 +70,9 @@ test('createWorktree: fails cleanly outside a repo', { skip: !gitAvailable() }, 
   assert.match(r.error, /not inside a git repository/i);
 });
 
-test('defaultWorktreePath: sibling of the repo, branch slashes flattened', () => {
+test('defaultWorktreePath: <repo>.worktrees/<branch> container, slashes flattened', () => {
   const p = wt.defaultWorktreePath('/tmp/myrepo', 'feature/x');
-  assert.strictEqual(p, path.join('/tmp', 'myrepo-feature-x'));
+  assert.strictEqual(p, path.join('/tmp', 'myrepo.worktrees', 'feature-x'));
 });
 
 test('listWorktrees: main first (isMain), created worktree appears then removed', { skip: !gitAvailable() }, async () => {

@@ -458,9 +458,11 @@ function initWorkbenchPopover({ getActiveSession, showToast }) {
     const wl = await api.worktreeList(name);
     if (!wl || !wl.ok) { toast('Not a git repository.'); return; }
     const base = wtNewBase.value.trim() || null;
-    const r = await api.createWorktree(wl.repo, branch, { base });
+    const dirEl = $('wb-worktree-dir');
+    const targetPath = (dirEl && dirEl.value.trim()) || null; // empty → <repo>.worktrees/<branch>
+    const r = await api.createWorktree(wl.repo, branch, { base, targetPath });
     if (!r || !r.ok) { toast(`Create worktree failed: ${(r && r.error) || 'unknown'}`); return; }
-    wtNewBranch.value = ''; wtNewBase.value = '';
+    wtNewBranch.value = ''; wtNewBase.value = ''; if (dirEl) dirEl.value = '';
     renderWorktrees();
   });
   $('wb-worktrees-refresh').addEventListener('click', () => renderWorktrees());

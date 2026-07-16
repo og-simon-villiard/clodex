@@ -842,6 +842,7 @@ function registerIpcHandlers(deps) {
       disableClaudeDesignMcp: s.disableClaudeDesignMcp,
       compactOnResume: s.compactOnResume,
       discoverOnStartup: s.discoverOnStartup,
+      sidebarWidth: s.sidebarWidth,
       theme: s.theme,
       remoteEnabled: s.remoteEnabled,
       remotePort: s.remotePort,

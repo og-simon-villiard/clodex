@@ -61,7 +61,7 @@ function createSessionMeta({ REGISTRY_DIR, prTtlMs = 60_000 }) {
   // { isRepo, branch, prState: 'open'|'merged'|'closed'|'none'|null, prNumber }.
   // `gh` absent / not authed / offline → prState:null (unknown), never throws.
   async function prStatus(cwd, { force = false } = {}) {
-    if (!cwd) return { isRepo: false, branch: null, prState: null, prNumber: null };
+    if (!cwd) return { isRepo: false, branch: null, prState: null, prNumber: null, prUrl: null };
     const now = Date.now();
     const hit = prCache.get(cwd);
     if (!force && hit && (now - hit.at) < prTtlMs) return hit.value;
@@ -70,19 +70,20 @@ function createSessionMeta({ REGISTRY_DIR, prTtlMs = 60_000 }) {
 
     const promise = (async () => {
       const branchOut = await run('git', ['-C', cwd, 'rev-parse', '--abbrev-ref', 'HEAD'], cwd);
-      if (branchOut == null) return { isRepo: false, branch: null, prState: null, prNumber: null };
+      if (branchOut == null) return { isRepo: false, branch: null, prState: null, prNumber: null, prUrl: null };
       const branch = branchOut.trim() || null;
-      let prState = null, prNumber = null;
-      // gh pr view on the current branch → JSON {state, number}. Distinguish the
-      // three outcomes so the UI can bucket correctly:
-      //   success        → the PR's state (open|merged|closed)
+      let prState = null, prNumber = null, prUrl = null;
+      // gh pr view on the current branch → JSON {state, number, url}. Distinguish
+      // the three outcomes so the UI can bucket correctly:
+      //   success        → the PR's state (open|merged|closed) + url (clickable)
       //   ran, exit ≠ 0  → no PR for this branch → 'none' (a real, groupable fact)
       //   ENOENT         → gh not installed → null (unknown; neutral group)
-      const gh = await runDetailed('gh', ['pr', 'view', '--json', 'state,number'], cwd, 6000);
+      const gh = await runDetailed('gh', ['pr', 'view', '--json', 'state,number,url'], cwd, 6000);
       if (gh.ok) {
         try {
           const j = JSON.parse(gh.stdout);
           prNumber = j.number || null;
+          prUrl = j.url || null;
           prState = j.state ? String(j.state).toLowerCase() : 'none';
         } catch { prState = 'none'; }
       } else if (gh.code === 'ENOENT') {
@@ -90,7 +91,7 @@ function createSessionMeta({ REGISTRY_DIR, prTtlMs = 60_000 }) {
       } else {
         prState = 'none'; // gh ran and reported no PR for this branch
       }
-      return { isRepo: true, branch, prState, prNumber };
+      return { isRepo: true, branch, prState, prNumber, prUrl };
     })();
 
     prCache.set(cwd, { at: now, promise });
@@ -99,32 +100,64 @@ function createSessionMeta({ REGISTRY_DIR, prTtlMs = 60_000 }) {
     return value;
   }
 
-  // Bulk metadata for a set of sessions [{ name, cwd }]. Timestamps always;
-  // PR status only when includePr (it's the slow tier). Returns
-  // { [name]: { lastActivityTs, branch, prState, prNumber } }.
+  // Repo + name for a cwd, cached (the "Group: Project" sidebar mode buckets by
+  // REPO, not the containing folder — and crucially, WORKTREES fold into their
+  // parent repo). A worktree's own --show-toplevel is its own dir, so we key off
+  // the COMMON git dir (--git-common-dir), which points at the MAIN repo's .git
+  // for every linked worktree; its parent is the canonical repo. Falls back to
+  // --show-toplevel for a plain checkout. `repo` is the main-repo path (shared
+  // across worktrees → same group); repoName its basename.
+  const repoCache = new Map();
+  async function repoOf(cwd) {
+    if (!cwd) return { repo: null, repoName: null };
+    if (repoCache.has(cwd)) return repoCache.get(cwd);
+    let repo = null;
+    const common = await run('git', ['-C', cwd, 'rev-parse', '--path-format=absolute', '--git-common-dir'], cwd);
+    const cdir = common && common.trim();
+    if (cdir) {
+      const base = cdir.replace(/\/+$/, '');
+      repo = /(^|\/)\.git$/.test(base) ? base.replace(/\/\.git$/, '') : base.replace(/\.git$/, '');
+    }
+    if (!repo) {
+      const top = await run('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], cwd);
+      repo = top && top.trim();
+    }
+    const value = repo ? { repo, repoName: repo.split('/').filter(Boolean).pop() || repo } : { repo: null, repoName: null };
+    repoCache.set(cwd, value);
+    return value;
+  }
+
+  // Bulk metadata for a set of sessions [{ name, cwd }]. Timestamps + repo name
+  // always; PR status only when includePr (it's the slow tier). Returns
+  // { [name]: { lastActivityTs, repo, repoName, branch, prState, prNumber, prUrl } }.
   async function metaFor(sessions, { includePr = true } = {}) {
     const out = {};
-    // Dedupe PR lookups by cwd — many sessions share a repo.
-    const prByCwd = new Map();
+    const byCwd = new Set();
     for (const s of sessions) {
-      const m = { lastActivityTs: lastActivityTs(s.name), branch: null, prState: null, prNumber: null };
-      out[s.name] = m;
-      if (includePr && s.cwd && !prByCwd.has(s.cwd)) prByCwd.set(s.cwd, null);
+      out[s.name] = { lastActivityTs: lastActivityTs(s.name), repo: null, repoName: null, branch: null, prState: null, prNumber: null, prUrl: null };
+      if (s.cwd) byCwd.add(s.cwd);
+    }
+    // Repo name for every distinct cwd (cheap tier, always).
+    const repoByCwd = new Map();
+    await Promise.all([...byCwd].map(async (cwd) => { repoByCwd.set(cwd, await repoOf(cwd)); }));
+    for (const s of sessions) {
+      if (!s.cwd) continue;
+      const rp = repoByCwd.get(s.cwd);
+      if (rp) { out[s.name].repo = rp.repo; out[s.name].repoName = rp.repoName; }
     }
     if (includePr) {
-      await Promise.all([...prByCwd.keys()].map(async (cwd) => {
-        prByCwd.set(cwd, await prStatus(cwd));
-      }));
+      const prByCwd = new Map();
+      await Promise.all([...byCwd].map(async (cwd) => { prByCwd.set(cwd, await prStatus(cwd)); }));
       for (const s of sessions) {
         if (!s.cwd) continue;
         const pr = prByCwd.get(s.cwd);
-        if (pr) Object.assign(out[s.name], { branch: pr.branch, prState: pr.prState, prNumber: pr.prNumber });
+        if (pr) Object.assign(out[s.name], { branch: pr.branch, prState: pr.prState, prNumber: pr.prNumber, prUrl: pr.prUrl });
       }
     }
     return out;
   }
 
-  return { lastActivityTs, prStatus, metaFor, _prCache: prCache };
+  return { lastActivityTs, prStatus, repoOf, metaFor, _prCache: prCache };
 }
 
 module.exports = { createSessionMeta };

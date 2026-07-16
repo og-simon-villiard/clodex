@@ -108,6 +108,9 @@ const DEFAULT_UI_SETTINGS = {
   // picked as a session cwd, most-recent first, capped at 12. Fed to the
   // cwd-suggestions datalist alongside the popular-across-live-sessions list.
   recentCwds: [],
+  // Sidebar width in px (drag-to-resize). Global — every window opens at the
+  // same width. Clamped to a sane range on read/write.
+  sidebarWidth: 220,
   // Built-in Claude Design MCP: the CLI auto-injects the claude.ai `claude_design`
   // connector (20 `mcp__claude_design__*` tools, ~4k tok/turn cache carriage) on
   // every launch for entitled accounts, with no honored global opt-out. The PRIMARY
@@ -173,6 +176,13 @@ const DEFAULT_UI_SETTINGS = {
 // token (trimmed, cap 256); an explicit `''` CLEARS it; a dropped row drops its
 // token with the row. On a fresh disk load `prior` is absent — the persisted
 // string simply passes through the same set-on-string branch.
+// Sidebar width, clamped to a usable px range. Non-numbers → the 220 default.
+function clampSidebarWidth(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 220;
+  return Math.max(160, Math.min(560, Math.round(n)));
+}
+
 function sanitizePeers(raw, prior) {
   if (!Array.isArray(raw)) return null;
   const priorById = new Map(
@@ -1314,6 +1324,7 @@ function initStores(userDataPath, { log, registryDir } = {}) {
           compactOnResume: typeof raw?.compactOnResume === 'boolean' ? raw.compactOnResume : DEFAULT_UI_SETTINGS.compactOnResume,
           discoverOnStartup: typeof raw?.discoverOnStartup === 'boolean' ? raw.discoverOnStartup : DEFAULT_UI_SETTINGS.discoverOnStartup,
           recentCwds: Array.isArray(raw?.recentCwds) ? raw.recentCwds.filter((c) => typeof c === 'string').slice(0, 12) : DEFAULT_UI_SETTINGS.recentCwds,
+          sidebarWidth: clampSidebarWidth(raw?.sidebarWidth),
           disableClaudeDesignMcp: typeof raw?.disableClaudeDesignMcp === 'boolean' ? raw.disableClaudeDesignMcp : DEFAULT_UI_SETTINGS.disableClaudeDesignMcp,
           theme: THEME_KEYS.includes(raw?.theme) ? raw.theme : DEFAULT_UI_SETTINGS.theme,
           remoteEnabled: typeof raw?.remoteEnabled === 'boolean' ? raw.remoteEnabled : DEFAULT_UI_SETTINGS.remoteEnabled,
@@ -1346,6 +1357,7 @@ function initStores(userDataPath, { log, registryDir } = {}) {
         compactOnResume: partial?.compactOnResume ?? cur.compactOnResume,
         discoverOnStartup: partial?.discoverOnStartup ?? cur.discoverOnStartup,
         recentCwds: Array.isArray(partial?.recentCwds) ? partial.recentCwds.filter((c) => typeof c === 'string').slice(0, 12) : cur.recentCwds,
+        sidebarWidth: partial?.sidebarWidth != null ? clampSidebarWidth(partial.sidebarWidth) : cur.sidebarWidth,
         disableClaudeDesignMcp: partial?.disableClaudeDesignMcp ?? cur.disableClaudeDesignMcp,
         theme: THEME_KEYS.includes(partial?.theme) ? partial.theme : cur.theme,
         remoteEnabled: partial?.remoteEnabled ?? cur.remoteEnabled,

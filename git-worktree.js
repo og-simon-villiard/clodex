@@ -36,7 +36,10 @@ async function repoToplevel(cwd) {
 function defaultWorktreePath(repoTop, branch) {
   const repoName = path.basename(repoTop);
   const safeBranch = String(branch).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'wt';
-  return path.join(path.dirname(repoTop), `${repoName}-${safeBranch}`);
+  // A sibling ".worktrees" container groups every worktree of this repo in one
+  // place — <parent>/<repo>.worktrees/<branch> — instead of scattering them as
+  // <repo>-<branch> siblings. Outside the repo tree, so git never tracks them.
+  return path.join(path.dirname(repoTop), `${repoName}.worktrees`, safeBranch);
 }
 
 // Create a worktree for `branch` off the repo containing `cwd`. If `branch`

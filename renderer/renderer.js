@@ -89,9 +89,36 @@ const inputWorktree = document.getElementById('input-worktree');
 const inputWorktreeBranch = document.getElementById('input-worktree-branch');
 const inputWorktreeBase = document.getElementById('input-worktree-base');
 const worktreeBaseList = document.getElementById('worktree-base-list');
+const inputWorktreeDir = document.getElementById('input-worktree-dir');
 const worktreeFields = document.getElementById('worktree-fields');
 const worktreeRow = document.getElementById('worktree-row');
 const cwdSuggestionsList = document.getElementById('cwd-suggestions');
+// Repo root for the entered cwd (set by refreshWorktreeForCwd) + whether the
+// user hand-edited the worktree dir — drives the auto <repo>.worktrees/<branch>
+// default in the dir field.
+let worktreeRepoRoot = null;
+let worktreeDirEdited = false;
+function defaultWorktreeDir() {
+  if (!worktreeRepoRoot) return '';
+  const branch = inputWorktreeBranch.value.trim();
+  if (!branch) return '';
+  const repoName = worktreeRepoRoot.split('/').filter(Boolean).pop() || 'repo';
+  const parent = worktreeRepoRoot.slice(0, worktreeRepoRoot.length - repoName.length).replace(/\/$/, '');
+  const slug = branch.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'wt';
+  return `${parent}/${repoName}.worktrees/${slug}`;
+}
+function syncWorktreeDirPlaceholder() {
+  if (!inputWorktreeDir) return;
+  const def = defaultWorktreeDir();
+  inputWorktreeDir.placeholder = def || '(auto)';
+  if (!worktreeDirEdited) inputWorktreeDir.value = '';
+}
+if (inputWorktreeBranch) {
+  inputWorktreeBranch.addEventListener('input', () => { inputWorktreeBranch.style.borderColor = ''; syncWorktreeDirPlaceholder(); });
+}
+if (inputWorktreeDir) {
+  inputWorktreeDir.addEventListener('input', () => { worktreeDirEdited = inputWorktreeDir.value.trim() !== ''; });
+}
 // New Session placement selector (docs/sandbox-plan.md M3; N boxes in M6b P3) —
 // Host + one entry per registered sandbox box. The selected <option>'s value is the
 // placement: 'host' or a box id.
@@ -699,7 +726,7 @@ function updateSidebarActive() {
 // rows must be visible-dimmed by default so ✕/⌘W reads as archive (a dimmed
 // row in place), never as a silent delete. 'Active' is the opt-in hide.
 let sidebarView = { group: 'none', sort: 'recency', status: 'all', activity: 'all', search: '' };
-// name -> { lastActivityTs, createdAt, branch, prState, prNumber }
+// name -> { lastActivityTs, createdAt, repo, repoName, branch, prState, prNumber, prUrl }
 const sidebarMeta = new Map();
 const collapsedGroups = new Set(); // group keys the user collapsed
 
@@ -709,12 +736,16 @@ const sbSort = document.getElementById('sidebar-sort');
 const sbStatus = document.getElementById('sidebar-status');
 const sbActivity = document.getElementById('sidebar-activity');
 
-// Project label for a cwd: repo/dir basename, with its parent for context.
-function projectLabel(cwd) {
+// Project label for a session row: the git REPO name when known (from sidebar
+// meta's repoName — which folds worktrees into their parent repo), else the
+// cwd's own basename. Grouping by repo means every session in the same repo —
+// different subdirs or worktrees — buckets together.
+function projectLabel(item) {
+  const meta = sidebarMeta.get(item.dataset.name) || {};
+  if (meta.repoName) return meta.repoName;
+  const cwd = item.dataset.cwd;
   if (!cwd) return '(no directory)';
-  const parts = cwd.split('/').filter(Boolean);
-  if (parts.length <= 1) return cwd;
-  return parts.slice(-2).join('/');
+  return cwd.split('/').filter(Boolean).pop() || cwd;
 }
 
 function stateOf(item) {
@@ -743,7 +774,7 @@ const PR_ORDER = ['open', 'merged', 'closed', 'none', 'no PR / unknown'];
 function groupFor(item) {
   const meta = sidebarMeta.get(item.dataset.name) || {};
   switch (sidebarView.group) {
-    case 'project': return projectLabel(item.dataset.cwd);
+    case 'project': return projectLabel(item);
     case 'state': return stateOf(item);
     case 'date': return dateBucket(meta.lastActivityTs || meta.createdAt);
     case 'pr': return meta.prState ? meta.prState : 'no PR / unknown';
@@ -887,9 +918,24 @@ function applyPrBadge(item) {
   chip.classList.remove('open', 'merged', 'closed');
   if (state === 'open' || state === 'merged' || state === 'closed') chip.classList.add(state);
   chip.textContent = meta.prNumber ? `#${meta.prNumber}` : state;
+  // Clickable when we have the PR URL — opens it in the system browser; the
+  // click must not also switch sessions. dataset.prUrl is re-read live so a
+  // later meta refresh that fills the url upgrades the existing chip in place.
+  chip.dataset.prUrl = meta.prUrl || '';
+  chip.classList.toggle('clickable', !!meta.prUrl);
   // data-tip (not native title) — the sidebar tooltip mechanism (tooltip.js) is
   // body-delegated, so this dynamically-added chip is picked up automatically.
-  chip.setAttribute('data-tip', `PR ${state}${meta.branch ? ` · ${meta.branch}` : ''}`);
+  chip.setAttribute('data-tip', meta.prUrl
+    ? `Open PR ${meta.prNumber ? `#${meta.prNumber}` : ''} (${state}) in browser${meta.branch ? ` · ${meta.branch}` : ''}`
+    : `PR ${state}${meta.branch ? ` · ${meta.branch}` : ''}`);
+  if (!chip._prClickWired) {
+    chip._prClickWired = true;
+    chip.addEventListener('click', (e) => {
+      if (!chip.dataset.prUrl) return;
+      e.stopPropagation();
+      window.api.openExternal(chip.dataset.prUrl);
+    });
+  }
 }
 
 // Debounced re-layout — activity events can arrive in bursts; coalesce them so
@@ -932,7 +978,19 @@ async function refreshSidebarMeta({ includePr = true } = {}) {
     const res = await window.api.sidebarMeta({ includePr });
     if (res && res.ok && res.meta) {
       for (const [name, m] of Object.entries(res.meta)) {
-        sidebarMeta.set(name, { ...(sidebarMeta.get(name) || {}), ...m });
+        const prev = sidebarMeta.get(name) || {};
+        const merged = { ...prev, ...m };
+        // A timestamp-only refresh (includePr:false) returns null PR fields — do
+        // NOT let those clobber a previously-loaded PR status, or the badge would
+        // vanish every poll and reappear on the next PR-including refresh. Keep
+        // the known values instead.
+        if (!includePr) {
+          merged.prState = prev.prState ?? m.prState;
+          merged.prNumber = prev.prNumber ?? m.prNumber;
+          merged.prUrl = prev.prUrl ?? m.prUrl;
+          merged.branch = prev.branch ?? m.branch;
+        }
+        sidebarMeta.set(name, merged);
       }
     }
   } catch {} finally { metaRefreshInFlight = false; }
@@ -986,8 +1044,15 @@ async function initSidebarView() {
   if (sbActivity) sbActivity.value = sidebarView.activity;
   if (sbSearch) sbSearch.value = sidebarView.search || '';
   await refreshSidebarMeta();
-  // Periodic timestamp refresh so recency sort + activity filter stay live.
-  setInterval(() => refreshSidebarMeta({ includePr: false }), 30000);
+  // Periodic refresh so recency sort + activity filter stay live. Timestamps
+  // every 30s (cheap); PR status every ~2 min — the server-side TTL cache (60s)
+  // means an included-PR tick only actually re-shells `gh` when stale, and the
+  // null-clobber guard above keeps the badge from flickering on the cheap ticks.
+  let metaTick = 0;
+  setInterval(() => {
+    metaTick += 1;
+    refreshSidebarMeta({ includePr: metaTick % 4 === 0 });
+  }, 30000);
 }
 
 // Number of sessions currently flagged needs-attention — derived from the same
@@ -1021,6 +1086,15 @@ function createTerminal(name, peer = null) {
     theme: currentXtermTheme(),
     cursorBlink: true,
     allowProposedApi: true,
+    // OSC 8 hyperlinks (what CLIs emit for clickable links) default to
+    // window.open, which in this nodeIntegration renderer pops an INTERNAL
+    // Electron window. Route them to the system default browser instead. Only
+    // http/https/mailto escape the app; anything else is ignored.
+    linkHandler: {
+      activate: (_event, uri) => {
+        if (typeof uri === 'string' && /^(https?|mailto):/i.test(uri)) window.api.openExternal(uri);
+      },
+    },
   });
 
   const fitAddon = new FitAddon();
@@ -1557,7 +1631,7 @@ async function refreshNewSessionTools(disabledSet = null) {
 if (inputWorktree) {
   inputWorktree.addEventListener('change', () => {
     worktreeFields.style.display = inputWorktree.checked ? '' : 'none';
-    if (inputWorktree.checked) inputWorktreeBranch.focus();
+    if (inputWorktree.checked) { syncWorktreeDirPlaceholder(); inputWorktreeBranch.focus(); }
   });
 }
 
@@ -1578,8 +1652,10 @@ async function refreshWorktreeForCwd() {
   if (!isRepo || authoring) {
     if (inputWorktree) inputWorktree.checked = false;
     if (worktreeFields) worktreeFields.style.display = 'none';
+    worktreeRepoRoot = null;
     return;
   }
+  worktreeRepoRoot = info.repo || null;
   // Populate the base-branch datalist (default first) and seed the placeholder.
   worktreeBaseList.textContent = '';
   for (const b of (info.branches || [])) {
@@ -1588,6 +1664,7 @@ async function refreshWorktreeForCwd() {
     worktreeBaseList.appendChild(opt);
   }
   inputWorktreeBase.placeholder = info.defaultBranch ? `${info.defaultBranch} (default)` : '(default branch)';
+  syncWorktreeDirPlaceholder();
 }
 
 // Working Directory datalist: recently-picked dirs (MRU) first, then the most-
@@ -1631,6 +1708,9 @@ async function openDialog(prefill = null) {
     inputWorktreeBranch.value = '';
     inputWorktreeBranch.style.borderColor = '';
     inputWorktreeBase.value = '';
+    if (inputWorktreeDir) { inputWorktreeDir.value = ''; inputWorktreeDir.placeholder = '(auto)'; }
+    worktreeDirEdited = false;
+    worktreeRepoRoot = null;
     if (worktreeFields) worktreeFields.style.display = 'none';
   }
   refreshCwdSuggestions();
@@ -1931,7 +2011,9 @@ async function doCreate() {
       return;
     }
     const base = inputWorktreeBase.value.trim() || null; // null → repo default branch
-    const wt = await window.api.createWorktree(cwd, branch, { base });
+    // Explicit dir wins; empty → git-worktree.js computes <repo>.worktrees/<branch>.
+    const targetPath = (inputWorktreeDir && inputWorktreeDir.value.trim()) || null;
+    const wt = await window.api.createWorktree(cwd, branch, { base, targetPath });
     if (!wt || !wt.ok) {
       showToast(`Worktree creation failed: ${(wt && wt.error) || 'unknown error'}`, { kind: 'error', duration: 10000 });
       return;
@@ -3193,6 +3275,50 @@ function refitActiveTerminal() {
 
 const resizeObserver = new ResizeObserver(refitActiveTerminal);
 resizeObserver.observe(terminalContainer);
+
+// --- Resizable sidebar ------------------------------------------------------
+// Drag the handle at the sidebar's right edge to set --sidebar-width on :root
+// (which #main and every docked pane follow); the terminalContainer
+// ResizeObserver above refits the active terminal as #main reflows. Width is
+// clamped and persisted globally (uiSettings.sidebarWidth); double-click resets.
+(() => {
+  const resizer = document.getElementById('sidebar-resizer');
+  if (!resizer) return;
+  const MIN = 160, MAX = 560, DEFAULT = 220;
+  const setWidth = (px) => {
+    const w = Math.max(MIN, Math.min(MAX, Math.round(px)));
+    document.documentElement.style.setProperty('--sidebar-width', `${w}px`);
+    return w;
+  };
+  window.api.getSettings().then((s) => {
+    if (s && typeof s.sidebarWidth === 'number') setWidth(s.sidebarWidth);
+  }).catch(() => {});
+
+  let dragging = false;
+  const onMove = (e) => { if (dragging) setWidth(e.clientX); };
+  const onUp = () => {
+    if (!dragging) return;
+    dragging = false;
+    document.body.classList.remove('sidebar-resizing');
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width'), 10);
+    if (Number.isFinite(w)) window.api.setSettings({ sidebarWidth: w });
+    refitActiveTerminal();
+  };
+  resizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    dragging = true;
+    document.body.classList.add('sidebar-resizing');
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+  resizer.addEventListener('dblclick', () => {
+    setWidth(DEFAULT);
+    window.api.setSettings({ sidebarWidth: DEFAULT });
+    refitActiveTerminal();
+  });
+})();
 
 // View-menu zoom changed this window's zoom factor: the container's CSS-pixel
 // geometry moved under xterm, so refit through the same path resize uses.
