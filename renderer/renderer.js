@@ -726,7 +726,7 @@ function updateSidebarActive() {
 // rows must be visible-dimmed by default so ✕/⌘W reads as archive (a dimmed
 // row in place), never as a silent delete. 'Active' is the opt-in hide.
 let sidebarView = { group: 'none', sort: 'recency', status: 'all', activity: 'all', search: '' };
-// name -> { lastActivityTs, createdAt, repo, repoName, branch, prState, prNumber, prUrl }
+// name -> { lastActivityTs, createdAt, repo, repoName, branch, prState, prNumber, prUrl, ticket }
 const sidebarMeta = new Map();
 const collapsedGroups = new Set(); // group keys the user collapsed
 
@@ -778,6 +778,7 @@ function groupFor(item) {
     case 'state': return stateOf(item);
     case 'date': return dateBucket(meta.lastActivityTs || meta.createdAt);
     case 'pr': return meta.prState ? meta.prState : 'no PR / unknown';
+    case 'ticket': return (meta.ticket && meta.ticket.key) || 'No ticket';
     default: return null;
   }
 }
@@ -837,9 +838,10 @@ function refreshSidebarView() {
   // Remove any prior group headers / empty note.
   sessionList.querySelectorAll('.session-group-header, .session-empty-note').forEach((el) => el.remove());
 
-  // Partition into visible / hidden by filter, and paint each row's PR badge.
+  // Partition into visible / hidden by filter, and paint each row's badges.
   for (const el of rows) {
     applyPrBadge(el);
+    applyTicketBadge(el);
     const pass = rowPasses(el);
     el.style.display = pass ? '' : 'none';
     // Hide a row's subagent children with it.
@@ -948,6 +950,36 @@ function applyPrBadge(item) {
       if (!chip.dataset.prUrl) return;
       e.stopPropagation();
       window.api.openExternal(chip.dataset.prUrl);
+    });
+  }
+}
+
+// Paint the associated-ticket chip (e.g. ABC-152) onto a row from meta.ticket.
+// Clickable when a URL is known → opens the ticket in the system browser (and
+// doesn't switch sessions). Provider-agnostic: shows meta.ticket.key.
+function applyTicketBadge(item) {
+  const badges = item.querySelector('.session-badges');
+  if (!badges) return;
+  const meta = sidebarMeta.get(item.dataset.name) || {};
+  const ticket = meta.ticket;
+  let chip = badges.querySelector('.session-ticket');
+  if (!ticket || !ticket.key) { if (chip) chip.remove(); return; }
+  if (!chip) {
+    chip = document.createElement('span');
+    chip.className = 'session-ticket';
+    // Ticket sits before the PR chip when both exist.
+    badges.insertBefore(chip, badges.querySelector('.session-pr'));
+  }
+  chip.textContent = ticket.key;
+  chip.dataset.ticketUrl = ticket.url || '';
+  chip.classList.toggle('clickable', !!ticket.url);
+  chip.setAttribute('data-tip', ticket.url ? `Open ${ticket.key} in browser` : ticket.key);
+  if (!chip._ticketClickWired) {
+    chip._ticketClickWired = true;
+    chip.addEventListener('click', (e) => {
+      if (!chip.dataset.ticketUrl) return;
+      e.stopPropagation();
+      window.api.openExternal(chip.dataset.ticketUrl);
     });
   }
 }
@@ -2116,9 +2148,7 @@ const pnJiraSummary = document.getElementById('pn-jira-summary');
 const pnJiraStatusLabel = document.getElementById('pn-jira-status-label');
 // Context for the currently-open modal.
 let pnCtx = null;      // { repoName, repoPath, repoCwd, cwd }
-let pnJiraIssue = null; // last fetched { key, summary, status, type, description }
-
-const JIRA_IN_PROGRESS = 'In Progress';
+let pnJiraIssue = null; // last fetched ticket { system, key, summary, status, type, description, url }
 
 function pnIsolation() {
   const r = document.querySelector('input[name="pn-iso"]:checked');
@@ -2164,10 +2194,11 @@ async function openNewInProject(ctx) {
     }
     if (info && info.defaultBranch) pnBase.placeholder = `${info.defaultBranch} (default)`;
   }).catch(() => {});
-  window.api.jiraDetect().then((r) => {
-    const has = !!(r && r.ok && r.cli);
-    document.getElementById('pn-jira-unavailable').classList.toggle('hidden', has);
-    document.getElementById('pn-jira-body').style.display = has ? '' : 'none';
+  window.api.ticketDetect().then((r) => {
+    const providers = (r && r.ok && r.providers) || [];
+    const active = providers.find((p) => p.available);
+    document.getElementById('pn-jira-unavailable').classList.toggle('hidden', !!active);
+    document.getElementById('pn-jira-body').style.display = active ? '' : 'none';
   }).catch(() => {});
   pnOverlay.classList.remove('hidden');
   setTimeout(() => pnName.focus(), 50);
@@ -2179,27 +2210,28 @@ async function pnFetchJira() {
   if (!key) { pnJiraKey.focus(); return; }
   pnJiraSummary.textContent = 'Fetching…';
   pnJiraSummary.classList.remove('loaded');
-  const r = await window.api.jiraView(key);
+  const r = await window.api.ticketView(key);
   if (!r || !r.ok) {
     pnJiraSummary.textContent = `Couldn't fetch ${key}: ${(r && r.error) || 'unknown error'}`;
     pnJiraIssue = null;
     return;
   }
-  pnJiraIssue = r.issue;
-  pnJiraSummary.textContent = `${r.issue.key} · ${r.issue.type || ''} · ${r.issue.status || ''} — ${r.issue.summary}`;
+  pnJiraIssue = r.ticket;
+  const t = r.ticket;
+  pnJiraSummary.textContent = `${t.key} · ${t.type || ''} · ${t.status || ''} — ${t.summary}`;
   pnJiraSummary.classList.add('loaded');
   // Seed the branch name (if the box is checked and the field is empty/derivable).
   if (document.getElementById('pn-jira-branch').checked) {
-    const bn = await window.api.jiraBranchName(r.issue.key, r.issue.summary);
+    const bn = await window.api.ticketBranchName(t.key, t.summary);
     if (bn && bn.ok) pnBranch.value = bn.branch;
   }
   // Seed the session name if empty: <key>-<summary-slug>, e.g.
   // abc-152-auto-classify-certifications. Session names allow [A-Za-z0-9._-] and
   // cap at 64 chars, so slugify the summary and clamp.
   if (document.getElementById('pn-jira-seed').checked && !pnName.value.trim()) {
-    const slug = (r.issue.summary || '').toLowerCase()
+    const slug = (t.summary || '').toLowerCase()
       .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    const base = `${r.issue.key.toLowerCase()}${slug ? `-${slug}` : ''}`;
+    const base = `${t.key.toLowerCase()}${slug ? `-${slug}` : ''}`;
     pnName.value = base.slice(0, 64).replace(/-+$/, '');
   }
 }
@@ -2253,24 +2285,28 @@ async function pnCreate() {
     if (!co || !co.ok) showToast(`Branch checkout failed: ${(co && co.error) || 'unknown'}`, { kind: 'warn', duration: 10000, name });
   }
 
-  // Optional Jira side-effects (each gated by its checkbox).
+  // Optional ticket side-effects (each gated by its checkbox).
   if (jiraOn) {
-    const key = pnJiraIssue.key;
+    const t = pnJiraIssue;
+    const key = t.key;
+    // Stamp the association so the row badge + Group: Ticket can render it
+    // (provider-agnostic { system, key, url }).
+    window.api.markSessionTicket(name, { system: t.system || null, key, url: t.url || null });
     if (document.getElementById('pn-jira-transition').checked) {
-      window.api.jiraTransition(key, JIRA_IN_PROGRESS).then((r) => {
-        if (r && !r.ok) showToast(`Jira transition failed: ${r.error}`, { kind: 'warn', duration: 10000, name });
+      window.api.ticketTransition(key, null, t.system).then((r) => {
+        if (r && !r.ok) showToast(`Ticket transition failed: ${r.error}`, { kind: 'warn', duration: 10000, name });
       });
     }
     if (document.getElementById('pn-jira-comment').checked) {
       const body = `Started work in Clodex — session "${name}" on branch \`${branch}\`${worktree ? ' (git worktree)' : ''}.`;
-      window.api.jiraComment(key, body).then((r) => {
-        if (r && !r.ok) showToast(`Jira comment failed: ${r.error}`, { kind: 'warn', duration: 10000, name });
+      window.api.ticketComment(key, body, t.system).then((r) => {
+        if (r && !r.ok) showToast(`Ticket comment failed: ${r.error}`, { kind: 'warn', duration: 10000, name });
       });
     }
     // Seed context: if enabled, inject the ticket summary/description into the
     // session's input as an opening message once it's live.
-    if (document.getElementById('pn-jira-seed').checked && pnJiraIssue.summary) {
-      const ctx = `Working on Jira ${key}: ${pnJiraIssue.summary}\n\n${pnJiraIssue.description || ''}`.trim();
+    if (document.getElementById('pn-jira-seed').checked && t.summary) {
+      const ctx = `Working on ${key}: ${t.summary}\n\n${t.description || ''}`.trim();
       setTimeout(() => { try { window.api.writeToSession(name, ctx); } catch {} }, 1500);
     }
   }

@@ -467,6 +467,17 @@ function initStores(userDataPath, { log, registryDir } = {}) {
       else delete entry.worktree;
       this._save(all);
     },
+    // Associated issue-tracker ticket, stamped when a session is created from a
+    // ticket. Provider-agnostic: { system:'jira'|…, key, url }. A falsy value
+    // clears it. Powers the sidebar ticket badge + Group: Ticket.
+    setTicket(name, ticket) {
+      const all = this._load();
+      const entry = all.find(s => s.name === name);
+      if (!entry) return;
+      if (ticket && ticket.key) entry.ticket = { system: ticket.system || null, key: ticket.key, url: ticket.url || null };
+      else delete entry.ticket;
+      this._save(all);
+    },
     // Manual archive: an archived session keeps its record (so it can be resumed
     // later) but has no running PTY and is skipped by restore-spawn. Stamps
     // archivedAt for the sidebar's status filter + sort/display; clearing it

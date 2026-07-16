@@ -86,7 +86,8 @@ const PINNED_NAMES = [
   'onRequestOpenBoilingPot',
   // New session from a Jira ticket (acli / jira-cli adapter), from the project
   // group-header "+" modal.
-  'jiraDetect', 'jiraView', 'jiraTransition', 'jiraComment', 'jiraBranchName',
+  'ticketDetect', 'ticketView', 'ticketTransition', 'ticketComment', 'ticketUrl', 'ticketBranchName',
+  'markSessionTicket',
 ];
 
 test('table is well-formed: every row has name, valid kind, non-empty channel', () => {
@@ -110,8 +111,8 @@ test('no duplicate names and no duplicate channels', () => {
   assert.equal(new Set(channels).size, channels.length, 'channels are unique');
 });
 
-test('contract covers exactly the pinned 216-method surface', () => {
-  assert.equal(PINNED_NAMES.length, 216, 'pinned list is the full 216-method surface');
+test('contract covers exactly the pinned 218-method surface', () => {
+  assert.equal(PINNED_NAMES.length, 218, 'pinned list is the full 218-method surface');
   const contractNames = new Set(API_CONTRACT.map((r) => r.name));
   const pinned = new Set(PINNED_NAMES);
   const missing = [...pinned].filter((n) => !contractNames.has(n));
@@ -135,7 +136,7 @@ test('preload builds exactly the pinned window.api surface by looping the table'
     delete require.cache[require.resolve('../preload.js')];
     require('../preload.js');
     const generated = Object.keys(global.window.api);
-    assert.equal(generated.length, 216, 'window.api has exactly 216 methods');
+    assert.equal(generated.length, 218, 'window.api has exactly 218 methods');
     assert.deepEqual(new Set(generated), new Set(PINNED_NAMES), 'generated surface === pinned surface');
     for (const name of generated) {
       assert.equal(typeof global.window.api[name], 'function', `${name} is a function`);

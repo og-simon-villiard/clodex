@@ -117,4 +117,25 @@ async function comment(key, body) {
   return r.ok ? { ok: true, cli } : { ok: false, error: (r.stderr || r.stdout || 'comment failed').trim(), cli };
 }
 
-module.exports = { detect, view, transition, comment, validKey, normalizeIssue, _whichBin: whichBin };
+// Browsable URL for a ticket: https://<site>/browse/<KEY>. The site comes from
+// `acli jira auth status` ("Site: x.atlassian.net"), cached. jira-cli's config
+// isn't parsed here — it returns null there, so the badge falls back to no link.
+let _siteCache;
+async function jiraSite() {
+  if (_siteCache !== undefined) return _siteCache;
+  const cli = detect();
+  if (cli !== 'acli') { _siteCache = null; return null; }
+  const r = await run('acli', ['jira', 'auth', 'status'], { timeout: 8000 });
+  const m = r.stdout.match(/Site:\s*(\S+)/i);
+  _siteCache = m ? m[1].trim() : null;
+  return _siteCache;
+}
+async function ticketUrl(key) {
+  if (!validKey(key)) return null;
+  const site = await jiraSite();
+  if (!site) return null;
+  const host = /^https?:\/\//i.test(site) ? site.replace(/\/+$/, '') : `https://${site}`;
+  return `${host}/browse/${key.trim().toUpperCase()}`;
+}
+
+module.exports = { detect, view, transition, comment, validKey, normalizeIssue, ticketUrl, jiraSite, _whichBin: whichBin };

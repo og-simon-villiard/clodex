@@ -29,6 +29,7 @@ const API_CONTRACT = [
   { name: 'createWorktree', kind: 'invoke', channel: 'worktree:create' },
   { name: 'worktreeInfo', kind: 'invoke', channel: 'worktree:info' },
   { name: 'markSessionWorktree', kind: 'invoke', channel: 'session:markWorktree' },
+  { name: 'markSessionTicket', kind: 'invoke', channel: 'session:markTicket' },
   { name: 'cwdSuggestions', kind: 'invoke', channel: 'session:cwdSuggestions' },
   { name: 'noteCwd', kind: 'invoke', channel: 'session:noteCwd' },
   // Workspace panes: source control, worktree management, file explorer/editor.
@@ -46,12 +47,14 @@ const API_CONTRACT = [
   { name: 'fsList', kind: 'invoke', channel: 'fs:list' },
   { name: 'fsRead', kind: 'invoke', channel: 'fs:read' },
   { name: 'fsWrite', kind: 'invoke', channel: 'fs:write' },
-  // Jira: new session from a ticket (acli / jira-cli adapter).
-  { name: 'jiraDetect', kind: 'invoke', channel: 'jira:detect' },
-  { name: 'jiraView', kind: 'invoke', channel: 'jira:view' },
-  { name: 'jiraTransition', kind: 'invoke', channel: 'jira:transition' },
-  { name: 'jiraComment', kind: 'invoke', channel: 'jira:comment' },
-  { name: 'jiraBranchName', kind: 'invoke', channel: 'jira:branchName' },
+  // Tickets: new session from a ticket via a pluggable provider registry
+  // (Jira now; Linear/GitHub/ADO later — same channels).
+  { name: 'ticketDetect', kind: 'invoke', channel: 'ticket:detect' },
+  { name: 'ticketView', kind: 'invoke', channel: 'ticket:view' },
+  { name: 'ticketTransition', kind: 'invoke', channel: 'ticket:transition' },
+  { name: 'ticketComment', kind: 'invoke', channel: 'ticket:comment' },
+  { name: 'ticketUrl', kind: 'invoke', channel: 'ticket:url' },
+  { name: 'ticketBranchName', kind: 'invoke', channel: 'ticket:branchName' },
   { name: 'listSessions', kind: 'invoke', channel: 'session:list' },
   { name: 'killSession', kind: 'invoke', channel: 'session:kill' },
   { name: 'archiveSession', kind: 'invoke', channel: 'session:archive' },

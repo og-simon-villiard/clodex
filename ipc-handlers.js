@@ -32,7 +32,7 @@ const sessionDiscovery = require('./session-discovery');
 const gitWorktree = require('./git-worktree');
 const gitScm = require('./git-scm');
 const fsExplorer = require('./fs-explorer');
-const jiraCli = require('./jira-cli');
+const ticketProviders = require('./ticket-providers');
 
 function registerIpcHandlers(deps) {
   const {
@@ -151,6 +151,13 @@ function registerIpcHandlers(deps) {
     persistence.setWorktree(name, worktree || null);
     return { ok: true };
   });
+  // Stamp/clear the associated ticket ({ system, key, url }) on a session — set
+  // by the ticket create flow so the row badge + Group: Ticket can render it.
+  handle('session:markTicket', (_e, name, ticket) => {
+    if (!persistence.get(name)) return { ok: false, error: 'Session not found' };
+    persistence.setTicket(name, ticket || null);
+    return { ok: true };
+  });
 
   // --- Workspace panes: Explorer / Source Control / Worktrees -------------
   // All three panes scope to a session's cwd, resolved SERVER-SIDE from the live
@@ -213,23 +220,42 @@ function registerIpcHandlers(deps) {
   handle('worktree:remove', async (_e, worktreePath) =>
     gitWorktree.removeWorktree(worktreePath));
 
-  // --- Jira: "new session from ticket" (jira-cli.js adapter, acli|jira) ----
-  // detect → which CLI (or null, so the modal can grey the Jira section).
-  handle('jira:detect', () => ({ ok: true, cli: jiraCli.detect() }));
-  // view → fetch + normalize a ticket ({ key, summary, status, type, description }).
-  handle('jira:view', async (_e, key) => jiraCli.view(key));
+  // --- Tickets: "new session from a ticket" via a pluggable provider registry
+  // (ticket-providers.js — Jira today via acli|jira; Linear/GitHub/ADO later).
+  // Every handler is provider-agnostic: an optional `system` selects a specific
+  // provider, else the active (first-detected) one is used.
+  //
+  // detect → [{ id, label, cli, available }] so the UI can grey the section or
+  // (future) offer a provider picker.
+  handle('ticket:detect', () => ({ ok: true, providers: ticketProviders.detect() }));
+  // view → { ok, ticket:{ system, key, summary, status, type, description, url } }.
+  handle('ticket:view', async (_e, key, system) => {
+    const p = ticketProviders.resolve(system);
+    if (!p) return { ok: false, error: 'No ticket provider available' };
+    return p.view(key);
+  });
   // transition/comment → optional post-create actions, each gated in the modal.
-  handle('jira:transition', async (_e, key, status) => jiraCli.transition(key, status));
-  handle('jira:comment', async (_e, key, body) => jiraCli.comment(key, body));
-  // Suggest a git branch name from a ticket: <KEY-lower>-<slug-of-summary>,
-  // e.g. abc-152-auto-classify-certifications. Pure string work; the modal shows
-  // it as the default branch (editable). Capped so paths stay sane.
-  handle('jira:branchName', (_e, key, summary) => {
-    const k = String(key || '').trim().toLowerCase();
-    const slug = String(summary || '').toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48).replace(/-+$/, '');
-    const branch = slug ? `${k}-${slug}` : k;
-    return { ok: true, branch };
+  handle('ticket:transition', async (_e, key, status, system) => {
+    const p = ticketProviders.resolve(system);
+    if (!p) return { ok: false, error: 'No ticket provider available' };
+    return p.transition(key, status || p.defaultStatus);
+  });
+  handle('ticket:comment', async (_e, key, body, system) => {
+    const p = ticketProviders.resolve(system);
+    if (!p) return { ok: false, error: 'No ticket provider available' };
+    return p.comment(key, body);
+  });
+  // Browsable URL for a ticket (for the row badge + "open in browser").
+  handle('ticket:url', async (_e, key, system) => {
+    const p = ticketProviders.resolve(system);
+    if (!p || !p.ticketUrl) return { ok: true, url: null };
+    return { ok: true, url: await p.ticketUrl(key).catch(() => null) };
+  });
+  // Suggest a git branch name from a ticket (provider-defined slugging).
+  handle('ticket:branchName', (_e, key, summary, system) => {
+    const p = ticketProviders.resolve(system);
+    if (!p || !p.branchName) return { ok: true, branch: String(key || '').toLowerCase() };
+    return { ok: true, branch: p.branchName(key, summary) };
   });
 
   // File explorer + editor (fs-explorer.js). Confined to the session cwd.
@@ -705,6 +731,7 @@ function registerIpcHandlers(deps) {
         if (!meta[s.name]) meta[s.name] = {};
         meta[s.name].createdAt = s.createdAt || null;
         meta[s.name].archivedAt = s.archivedAt || null;
+        meta[s.name].ticket = s.ticket || null; // { system, key, url } | null
       }
       return { ok: true, meta };
     } catch (err) {
