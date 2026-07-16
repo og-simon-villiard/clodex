@@ -2220,11 +2220,13 @@ async function fetchTicket() {
   }
 }
 
-// What doCreate needs to apply after spawn — null when the section is closed or
-// no ticket was fetched. { ticket, seed, transition, comment }.
+// What doCreate needs to apply after spawn — null only when no ticket was
+// fetched. A fetched ticket is honored even if the accordion was later collapsed
+// (fetching IS the intent); the badge/association must always be stamped so it
+// survives a restart. { ticket, seed, transition, comment }.
 function getTicketSelection() {
   if (!ticketSection || ticketSection.style.display === 'none') return null;
-  if (!ticketSection.open || !fetchedTicket) return null;
+  if (!fetchedTicket) return null;
   return {
     ticket: fetchedTicket,
     seed: document.getElementById('ticket-seed').checked,
